@@ -6,7 +6,7 @@ import numpy as np
 class FinancialData():
 	def __init__(self, 
 				ticker='TSLA',
-				start='2025-01-01',
+				start='2024-01-01',
 				end='2025-12-31',
 				window=3):
 		self.ticker = ticker
@@ -20,6 +20,9 @@ class FinancialData():
 		self.data = yf.download(self.ticker, start=self.start, end=self.end)['Close']
 		if self.data.empty:
 			raise ValueError(f"No se obtuvieron datos para el ticker '{self.ticker}' en el rango especificado.")
+
+		log_ret = np.log(self.data).diff().dropna()
+		self.log_returns = log_ret.values.reshape(-1, 1)
 
 
 	def visualize_data(self):
@@ -47,27 +50,21 @@ class FinancialData():
 		return np.array(X), np.array(y)
 
 	def splits(self, train_ratio=0.70, val_ratio=0.15):
-		"""
-		Divide la serie respetando el orden cronológico y escala
-		únicamente con los parámetros de entrenamiento.
-		"""
-		n_samples = len(self.data)
+		n_samples = len(self.log_returns)
 		train_end = int(n_samples * train_ratio)
 		val_end = int(n_samples * (train_ratio + val_ratio))
 
-		# 1. Partición fija en crudo para evitar data leakage
-		raw_train = self.data[:train_end]
-		# Se incluye un solapamiento de 'self.window' para no perder las primeras
-		# predicciones en los bordes de val y test
-		raw_val = self.data[train_end - self.window : val_end]
-		raw_test = self.data[val_end - self.window :]
+		# Particiones temporales de retornos
+		raw_train = self.log_returns[:train_end]
+		raw_val = self.log_returns[train_end - self.window : val_end]
+		raw_test = self.log_returns[val_end - self.window :]
 
-		# 2. Ajuste del scaler SOLO con train; transform para el resto
+        # Ajuste del StandardScaler sólo sobre entrenamiento
 		scaled_train = self.scaler.fit_transform(raw_train)
 		scaled_val = self.scaler.transform(raw_val)
 		scaled_test = self.scaler.transform(raw_test)
 
-		# 3. Construcción de ventanas (X, y) para cada partición
+        # Creación de secuencias X, y
 		X_train, y_train = self._create_sequences(scaled_train)
 		X_val, y_val = self._create_sequences(scaled_val)
 		X_test, y_test = self._create_sequences(scaled_test)
